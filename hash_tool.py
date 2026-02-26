@@ -168,6 +168,7 @@ class HashTool:
         self.root.resizable(True, True)
 
         self.file_path = None
+        self.file_paths = []  # Für Multi-CSV-Auswahl
         self.columns = []
         self.file_type = None  # 'excel' oder 'csv'
         self.workbook = None
@@ -316,6 +317,7 @@ class HashTool:
         self.column_combo['values'] = [name for _, name in self.columns]
         if self.columns:
             self.column_combo.current(0)
+            self.auto_select_password_column()
 
     def update_csv_columns(self):
         """Aktualisiert CSV-Spalten basierend auf Header-Option."""
@@ -340,6 +342,17 @@ class HashTool:
         self.column_combo['values'] = [name for _, name in self.columns]
         if self.columns:
             self.column_combo.current(0)
+            self.auto_select_password_column()
+
+    def auto_select_password_column(self):
+        """Wählt automatisch die Passwort-Spalte vor, falls erkannt."""
+        password_keywords = ['password', 'passwort', 'pwd', 'kennwort', 'pass']
+        for i, (_, display_name) in enumerate(self.columns):
+            name_lower = display_name.lower().split(' (spalte')[0].strip()
+            if name_lower in password_keywords:
+                self.column_combo.current(i)
+                self.log(f"Passwort-Spalte automatisch erkannt: {display_name}")
+                return
 
     def browse_file(self):
         filetypes = [("Alle unterstützten", "*.xlsx *.csv")]
@@ -348,14 +361,37 @@ class HashTool:
         filetypes.append(("CSV-Dateien", "*.csv"))
         filetypes.append(("Alle Dateien", "*.*"))
 
-        path = filedialog.askopenfilename(filetypes=filetypes)
-        if path:
+        paths = filedialog.askopenfilenames(filetypes=filetypes)
+        if paths:
+            self.file_paths = list(paths)
             self.file_entry.delete(0, "end")
-            self.file_entry.insert(0, path)
-            self.load_file()  # Automatisch laden nach Auswahl
+            if len(paths) == 1:
+                self.file_entry.insert(0, paths[0])
+            else:
+                self.file_entry.insert(0, f"{len(paths)} Dateien ausgewählt")
+            self.load_file()
 
     def load_file(self):
-        path = self.file_entry.get()
+        # Multi-CSV-Modus
+        if len(self.file_paths) > 1:
+            # Prüfen ob alle CSVs sind
+            all_csv = all(os.path.splitext(p)[1].lower() == '.csv' for p in self.file_paths)
+            if not all_csv:
+                messagebox.showerror("Fehler", "Mehrfachauswahl ist nur für CSV-Dateien möglich.")
+                return
+            for p in self.file_paths:
+                if not os.path.exists(p):
+                    messagebox.showerror("Fehler", f"Datei nicht gefunden: {p}")
+                    return
+            try:
+                self.load_multiple_csv_files(self.file_paths)
+            except Exception as e:
+                self.log(f"Fehler beim Laden: {str(e)}")
+                messagebox.showerror("Fehler", f"Fehler beim Laden:\n{str(e)}")
+            return
+
+        # Einzeldatei-Modus
+        path = self.file_paths[0] if self.file_paths else self.file_entry.get()
         if not path:
             messagebox.showerror("Fehler", "Bitte zuerst eine Datei auswählen.")
             return
@@ -405,6 +441,66 @@ class HashTool:
 
         self.update_excel_columns()
         self.log(f"Sheet '{sheet_name}' geladen. {len(self.columns)} Spalten gefunden.")
+
+    def load_multiple_csv_files(self, paths):
+        """Lädt mehrere CSV-Dateien und fügt sie zusammen. Header müssen identisch sein."""
+        self.file_type = 'csv'
+        self.workbook = None
+        self.sheet_combo['state'] = 'disabled'
+        self.sheet_combo.set('')
+
+        encoding = self.encoding_var.get()
+        reference_header = None
+        all_data_rows = []
+
+        for i, path in enumerate(paths):
+            delimiter = self.detect_csv_delimiter(path, encoding)
+            if delimiter == "\\t":
+                delimiter = "\t"
+
+            try:
+                with open(path, 'r', encoding=encoding, newline='') as f:
+                    reader = csv.reader(f, delimiter=delimiter)
+                    rows = list(reader)
+            except UnicodeDecodeError:
+                self.log(f"Encoding-Fehler bei: {os.path.basename(path)}")
+                messagebox.showerror("Fehler", f"Encoding-Fehler bei:\n{os.path.basename(path)}")
+                return
+
+            if not rows:
+                self.log(f"Übersprungen (leer): {os.path.basename(path)}")
+                continue
+
+            header = rows[0]
+            data = rows[1:]
+
+            if reference_header is None:
+                reference_header = header
+                self.delimiter_var.set(delimiter)
+            else:
+                if header != reference_header:
+                    diff_file = os.path.basename(path)
+                    ref_file = os.path.basename(paths[0])
+                    messagebox.showerror(
+                        "Fehler",
+                        f"Spaltenstruktur unterschiedlich!\n\n"
+                        f"'{diff_file}' stimmt nicht mit '{ref_file}' überein.\n\n"
+                        f"Alle CSVs müssen identische Spalten haben."
+                    )
+                    return
+
+            all_data_rows.extend(data)
+            self.log(f"Geladen: {os.path.basename(path)} ({len(data)} Zeilen)")
+
+        if reference_header is None:
+            messagebox.showerror("Fehler", "Alle CSV-Dateien sind leer.")
+            return
+
+        self.csv_data = [reference_header] + all_data_rows
+        self.file_path = paths[0]  # Für Save-Dialog Pfad
+
+        self.update_csv_columns()
+        self.log(f"Zusammengeführt: {len(paths)} Dateien, {len(all_data_rows)} Datenzeilen")
 
     def detect_csv_delimiter(self, path, encoding):
         """Erkennt automatisch das Trennzeichen einer CSV-Datei."""
@@ -634,13 +730,20 @@ class HashTool:
                     row.insert(col_idx + 1, "")
 
         # Speichern
-        base, ext = os.path.splitext(self.file_path)
-        output_path = f"{base}_hashed{ext}"
+        if len(self.file_paths) > 1:
+            names = [os.path.splitext(os.path.basename(p))[0] for p in self.file_paths]
+            combined = "_".join(names)
+            if len(combined) > 100:
+                combined = "_".join(names[:2]) + f"_+{len(names)-2}"
+            output_name = f"{combined}_merged_hashed.csv"
+        else:
+            base, ext = os.path.splitext(self.file_path)
+            output_name = os.path.basename(f"{base}_hashed{ext}")
 
         save_path = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV-Dateien", "*.csv")],
-            initialfile=os.path.basename(output_path),
+            initialfile=output_name,
             initialdir=os.path.dirname(self.file_path)
         )
 
