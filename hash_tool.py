@@ -238,7 +238,7 @@ class HashTool:
         csv_frame.columnconfigure(1, weight=1)
 
         ttk.Label(csv_frame, text="Trennzeichen:").grid(row=0, column=0, sticky="w")
-        self.delimiter_var = tk.StringVar(value=";")
+        self.delimiter_var = tk.StringVar(value=",")
         self.delimiter_combo = ttk.Combobox(csv_frame, textvariable=self.delimiter_var,
                                             values=[";", ",", "\t", "|"], width=5)
         self.delimiter_combo.grid(row=0, column=1, sticky="w", padx=5)
@@ -406,17 +406,32 @@ class HashTool:
         self.update_excel_columns()
         self.log(f"Sheet '{sheet_name}' geladen. {len(self.columns)} Spalten gefunden.")
 
+    def detect_csv_delimiter(self, path, encoding):
+        """Erkennt automatisch das Trennzeichen einer CSV-Datei."""
+        try:
+            with open(path, 'r', encoding=encoding, newline='') as f:
+                sample = f.read(8192)
+            sniffer = csv.Sniffer()
+            dialect = sniffer.sniff(sample, delimiters=',;\t|')
+            return dialect.delimiter
+        except csv.Error:
+            return self.delimiter_var.get()
+
     def load_csv_file(self, path):
         self.file_type = 'csv'
         self.workbook = None
         self.sheet_combo['state'] = 'disabled'
         self.sheet_combo.set('')
 
-        delimiter = self.delimiter_var.get()
+        encoding = self.encoding_var.get()
+
+        # Automatische Delimiter-Erkennung
+        detected_delimiter = self.detect_csv_delimiter(path, encoding)
+        self.delimiter_var.set(detected_delimiter)
+        delimiter = detected_delimiter
+
         if delimiter == "\\t":
             delimiter = "\t"
-
-        encoding = self.encoding_var.get()
 
         try:
             with open(path, 'r', encoding=encoding, newline='') as f:
@@ -429,6 +444,7 @@ class HashTool:
 
             self.update_csv_columns()
             self.log(f"CSV-Datei geladen: {os.path.basename(path)}")
+            self.log(f"Trennzeichen automatisch erkannt: '{delimiter}'")
             self.log(f"{len(self.columns)} Spalten gefunden.")
 
         except UnicodeDecodeError:
@@ -629,15 +645,75 @@ class HashTool:
         )
 
         if save_path:
+            # CSV speichern
             with open(save_path, 'w', encoding=encoding, newline='') as f:
                 writer = csv.writer(f, delimiter=delimiter)
                 writer.writerows(rows)
 
+            # Excel-Datei zusätzlich generieren
+            excel_path = os.path.splitext(save_path)[0] + ".xlsx"
+            self.save_csv_as_excel(rows, excel_path)
+
             hash_names = ", ".join([name for _, name in hash_functions])
             self.log(f"Verarbeitung abgeschlossen!")
             self.log(f"{processed_count} Werte mit {hash_names} gehasht und maskiert.")
-            self.log(f"Gespeichert unter: {save_path}")
-            messagebox.showinfo("Erfolg", f"Datei erfolgreich gespeichert!\n\n{processed_count} Werte verarbeitet.")
+            self.log(f"CSV gespeichert unter: {save_path}")
+            self.log(f"Excel gespeichert unter: {excel_path}")
+            messagebox.showinfo("Erfolg", f"Dateien erfolgreich gespeichert!\n\n{processed_count} Werte verarbeitet.\n\nCSV: {save_path}\nExcel: {excel_path}")
+
+
+    def save_csv_as_excel(self, rows, excel_path):
+        """Speichert CSV-Daten als Excel-Datei. Komplett leere Spalten werden ausgeblendet."""
+        if not EXCEL_SUPPORT:
+            self.log("HINWEIS: openpyxl nicht installiert - Excel-Export übersprungen.")
+            return
+
+        from openpyxl import Workbook
+        from openpyxl.utils import get_column_letter
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Hashed Data"
+
+        # Daten schreiben
+        for row in rows:
+            ws.append(row)
+
+        # Komplett leere Spalten ermitteln und ausblenden
+        if len(rows) > 1:
+            num_cols = max(len(r) for r in rows)
+            data_rows = rows[1:]  # Header überspringen
+
+            for col_idx in range(num_cols):
+                col_empty = all(
+                    col_idx >= len(r) or not r[col_idx] or str(r[col_idx]).strip() == ""
+                    for r in data_rows
+                )
+                if col_empty:
+                    col_letter = get_column_letter(col_idx + 1)
+                    ws.column_dimensions[col_letter].hidden = True
+
+        # Spaltenbreite automatisch anpassen für sichtbare Spalten
+        for col in ws.columns:
+            col_letter = get_column_letter(col[0].column)
+            if ws.column_dimensions[col_letter].hidden:
+                continue
+            max_length = 0
+            for cell in col:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
+
+        # Header fett formatieren
+        from openpyxl.styles import Font
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+
+        # Autofilter setzen
+        if ws.max_row > 0 and ws.max_column > 0:
+            ws.auto_filter.ref = ws.dimensions
+
+        wb.save(excel_path)
 
 
 def main():
