@@ -14,15 +14,19 @@ Die portable Version (HashTool.exe) kann direkt aus den [Releases](../../release
 - **Beide Hash-Typen gleichzeitig** moeglich
 - **Automatische Maskierung** der Originaldaten (erste 3 Zeichen + ***)
 - **Excel-Tabellen (Filter)** werden automatisch erweitert
+- **Automatische CSV-Delimiter-Erkennung** (Semikolon, Komma, Tab, Pipe)
 - **Konfigurierbare CSV-Optionen** (Trennzeichen, Encoding)
 - **Header-Erkennung** - erste Zeile kann als Titel behandelt werden
+- **Automatische Passwort-Spalten-Erkennung** (password, passwort, pwd, kennwort, pass)
+- **Multi-CSV-Zusammenfuehrung** - mehrere CSVs mit identischer Struktur auf einmal verarbeiten
+- **Automatischer Excel-Export** bei CSV-Verarbeitung (mit Autofilter, Spaltenbreite, leere Spalten ausgeblendet)
 
 ## Installation (aus Quellcode)
 
 ```bash
 # Repository klonen
-git clone https://github.com/DEIN_USERNAME/hash-tool.git
-cd hash-tool
+git clone https://github.com/CrisioDev/PW-HashTool.git
+cd PW-HashTool
 
 # Dependencies installieren
 pip install -r requirements.txt
@@ -53,7 +57,7 @@ Die .exe liegt dann im `dist/` Ordner.
 
 | Option | Werte | Standard |
 |--------|-------|----------|
-| Trennzeichen | ; , Tab \| | ; |
+| Trennzeichen | ; , Tab \| | Automatisch erkannt |
 | Encoding | utf-8, latin-1, cp1252, iso-8859-1 | utf-8 |
 
 ## Beispiel
@@ -74,7 +78,7 @@ Die .exe liegt dann im `dist/` Ordner.
 
 ## Systemanforderungen
 
-- Windows 10/11
+- Windows 10/11, macOS oder Linux
 - Oder: Python 3.7+ mit tkinter und openpyxl
 
 ## Lizenz
