@@ -10,22 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            artifact_name: HashTool-Windows.exe
-            pyinstaller_args: --onefile --windowed --name HashTool
-          - os: macos-latest
-            artifact_name: HashTool-macOS
-            pyinstaller_args: --onefile --windowed --name HashTool
-          - os: ubuntu-latest
-            artifact_name: HashTool-Linux
-            pyinstaller_args: --onefile --name HashTool
-
-    runs-on: ${{ matrix.os }}
-
+  build-windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -40,24 +26,70 @@ jobs:
           pip install pyinstaller openpyxl
 
       - name: Build executable
-        run: pyinstaller ${{ matrix.pyinstaller_args }} hash_tool.py
-
-      - name: Rename artifact (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: mv dist/HashTool dist/${{ matrix.artifact_name }}
-
-      - name: Rename artifact (Windows)
-        if: runner.os == 'Windows'
-        run: mv dist/HashTool.exe dist/${{ matrix.artifact_name }}
+        run: pyinstaller --onefile --windowed --name HashTool hash_tool.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.artifact_name }}
+          name: HashTool-Windows
+          path: dist/HashTool.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller openpyxl
+
+      - name: Build .app bundle
+        run: pyinstaller --windowed --name HashTool --osx-bundle-identifier com.crisiodev.hashtool hash_tool.py
+
+      - name: Zip .app bundle
+        run: cd dist && zip -r HashTool-macOS.zip HashTool.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HashTool-macOS
+          path: dist/HashTool-macOS.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller openpyxl
+
+      - name: Build executable
+        run: pyinstaller --onefile --name HashTool hash_tool.py
+
+      - name: Make executable and package
+        run: chmod +x dist/HashTool && tar -czf dist/HashTool-Linux.tar.gz -C dist HashTool
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HashTool-Linux
+          path: dist/HashTool-Linux.tar.gz
 
   release:
-    needs: build
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
@@ -70,5 +102,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: |
+            artifacts/HashTool-Windows/HashTool.exe
+            artifacts/HashTool-macOS/HashTool-macOS.zip
+            artifacts/HashTool-Linux/HashTool-Linux.tar.gz
           generate_release_notes: true
