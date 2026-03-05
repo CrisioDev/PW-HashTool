@@ -156,7 +156,7 @@ def mask_value(text: str) -> str:
     if not text:
         return ""
     if len(text) <= 3:
-        return text[0] + "***" if len(text) >= 1 else "***"
+        return "***"
     return text[:3] + "***"
 
 
